@@ -1,0 +1,170 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Linkly</title>
+  <meta name="description" content="Linkly — your personal link hub.">
+  <meta name="color-scheme" content="light dark">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%234f46e5'/%3E%3Cpath d='M13 19l6-6M11.5 15.5l-2 2a3.5 3.5 0 005 5l2-2M20.5 16.5l2-2a3.5 3.5 0 00-5-5l-2 2' stroke='white' stroke-width='2.4' fill='none' stroke-linecap='round'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="styles.css">
+  <script>
+    // Apply the saved theme before first paint to avoid a flash.
+    try {
+      var t = localStorage.getItem('linkly.theme');
+      if (t === 'light' || t === 'dark') document.documentElement.dataset.theme = t;
+    } catch (e) {}
+  </script>
+</head>
+<body>
+  <header class="topbar">
+    <div class="topbar-inner">
+      <a class="brand" href="#" aria-label="Linkly home">
+        <span class="brand-mark" aria-hidden="true">
+          <svg viewBox="0 0 24 24"><path d="M9 15l6-6M7.5 11.5l-2 2a3.5 3.5 0 005 5l2-2M16.5 12.5l2-2a3.5 3.5 0 00-5-5l-2 2"/></svg>
+        </span>
+        <span class="brand-name">Linkly</span>
+      </a>
+
+      <div class="search">
+        <svg class="search-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
+        <input id="search" type="search" placeholder="Search links, notes, tags…" autocomplete="off" aria-label="Search links">
+        <kbd class="search-kbd" aria-hidden="true">/</kbd>
+      </div>
+
+      <div class="topbar-actions">
+        <button class="icon-btn" id="themeToggle" type="button" title="Toggle light/dark mode" aria-label="Toggle light/dark mode">
+          <svg class="icon-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>
+          <svg class="icon-moon" viewBox="0 0 24 24"><path d="M21 12.8A9 9 0 1111.2 3a7 7 0 009.8 9.8z"/></svg>
+        </button>
+        <div class="menu">
+          <button class="icon-btn" id="menuBtn" type="button" title="More" aria-label="More options" aria-haspopup="true" aria-expanded="false">
+            <svg viewBox="0 0 24 24"><circle cx="12" cy="5" r="1.4"/><circle cx="12" cy="12" r="1.4"/><circle cx="12" cy="19" r="1.4"/></svg>
+          </button>
+          <div class="menu-list" id="menuList" role="menu" hidden>
+            <button role="menuitem" data-action="add-category" type="button">New category</button>
+            <button role="menuitem" data-action="export" type="button">Export JSON backup</button>
+            <button role="menuitem" data-action="import" type="button">Import JSON backup…</button>
+            <hr>
+            <button role="menuitem" data-action="clear-recent" type="button">Clear recently opened</button>
+          </div>
+        </div>
+        <input type="file" id="importFile" accept="application/json,.json" hidden>
+      </div>
+    </div>
+  </header>
+
+  <main class="container">
+    <form class="quick-add" id="quickAdd" autocomplete="off">
+      <div class="qa-field qa-url">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+        <input id="qaUrl" type="text" inputmode="url" placeholder="Paste a URL to add a link…" aria-label="URL">
+      </div>
+      <select id="qaCategory" class="qa-field" aria-label="Category"></select>
+      <input id="qaTags" class="qa-field" type="text" placeholder="tags, comma separated" aria-label="Tags">
+      <div class="qa-buttons">
+        <button type="submit" class="btn btn-primary">Add</button>
+        <button type="button" class="btn" id="qaMore" title="Add with title, note, and attachment">More…</button>
+      </div>
+    </form>
+
+    <div class="tagbar" id="tagbar" aria-label="Filter by tag"></div>
+
+    <div class="status" id="status" aria-live="polite"></div>
+
+    <section class="strip" id="pinnedSection" hidden>
+      <h2 class="strip-title"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 17v5M8 3h8l-1 6 3 3v2H6v-2l3-3z"/></svg>Pinned</h2>
+      <div class="strip-row" id="pinnedRow"></div>
+    </section>
+
+    <section class="strip" id="recentSection" hidden>
+      <h2 class="strip-title"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>Recently opened</h2>
+      <div class="strip-row" id="recentRow"></div>
+    </section>
+
+    <div id="categories"></div>
+
+    <div class="empty" id="emptyState" hidden></div>
+  </main>
+
+  <footer class="footer">
+    Stored privately in this browser · Press <kbd>/</kbd> to search · Export a backup from the <span aria-hidden="true">⋮</span> menu
+  </footer>
+
+  <!-- Link editor -->
+  <dialog id="linkDialog" class="dialog">
+    <form method="dialog" id="linkForm" class="dialog-body" autocomplete="off">
+      <h2 id="linkDialogTitle">Add link</h2>
+      <label>URL
+        <input name="url" type="text" inputmode="url" placeholder="https://…">
+      </label>
+      <div class="row-2">
+        <label>Title
+          <input name="title" type="text" placeholder="Auto-filled from the URL">
+        </label>
+        <label>Category
+          <select name="categoryId"></select>
+        </label>
+      </div>
+      <label>Note
+        <textarea name="note" rows="3" placeholder="A short note about this link"></textarea>
+      </label>
+      <label>Tags
+        <input name="tags" type="text" placeholder="e.g. daily, docs, reference">
+      </label>
+      <div class="attach-field">
+        <span class="label-text">Attachment</span>
+        <div class="attach-current" id="attachCurrent"></div>
+        <label class="btn btn-small file-btn">
+          <input type="file" name="file" hidden>
+          <span>Choose file…</span>
+        </label>
+      </div>
+      <label class="check">
+        <input type="checkbox" name="pinned"> Pin to the top
+      </label>
+      <p class="form-hint" id="linkFormError" role="alert"></p>
+      <div class="dialog-actions">
+        <button type="button" class="btn btn-danger" id="deleteLinkBtn">Delete</button>
+        <span class="spacer"></span>
+        <button type="button" class="btn" value="cancel" data-close>Cancel</button>
+        <button type="submit" class="btn btn-primary" value="save">Save</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Category editor -->
+  <dialog id="catDialog" class="dialog dialog-small">
+    <form method="dialog" id="catForm" class="dialog-body" autocomplete="off">
+      <h2 id="catDialogTitle">New category</h2>
+      <label>Name
+        <input name="name" type="text" required maxlength="40">
+      </label>
+      <div class="dialog-actions">
+        <button type="button" class="btn btn-danger" id="deleteCatBtn">Delete</button>
+        <span class="spacer"></span>
+        <button type="button" class="btn" data-close>Cancel</button>
+        <button type="submit" class="btn btn-primary">Save</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Import choice -->
+  <dialog id="importDialog" class="dialog dialog-small">
+    <div class="dialog-body">
+      <h2>Import backup</h2>
+      <p id="importSummary"></p>
+      <div class="dialog-actions">
+        <button type="button" class="btn" data-close>Cancel</button>
+        <span class="spacer"></span>
+        <button type="button" class="btn" id="importMerge">Merge</button>
+        <button type="button" class="btn btn-danger" id="importReplace">Replace all</button>
+      </div>
+    </div>
+  </dialog>
+
+  <div class="toast" id="toast" role="status" hidden></div>
+
+  <script src="app.js"></script>
+</body>
+</html>
