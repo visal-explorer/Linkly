@@ -32,6 +32,7 @@
     plus: '<svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>',
     up: '<svg viewBox="0 0 24 24"><path d="M12 19V5M6 11l6-6 6 6"/></svg>',
     down: '<svg viewBox="0 0 24 24"><path d="M12 5v14M6 13l6 6 6-6"/></svg>',
+    folder: '<svg viewBox="0 0 24 24"><path d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2z"/><path d="M12 11v4M10 13h4"/></svg>',
   };
 
   /* ------------------------------------------------------------------ */
@@ -94,10 +95,11 @@
   /* State                                                               */
   /* ------------------------------------------------------------------ */
   function seed() {
-    const cats = ['Work', 'Learning', 'Tools', 'Social', 'Finance'].map((name) => ({ id: uid(), name, collapsed: false }));
+    const cats = ['Work', 'Learning', 'Tools', 'Social', 'Finance'].map((name) => ({ id: uid(), name, collapsed: false, groups: [] }));
     const [work, learning, tools, social, finance] = cats.map((c) => c.id);
-    const L = (url, title, categoryId, note, tags, pinned = false) => ({
-      id: uid(), url, title, categoryId, note, tags, pinned, favicon: '', attachment: null,
+    const [tech, stocks, trading] = cats[1].groups = ['Technology', 'Stocks', 'Trading'].map((name) => ({ id: uid(), name, collapsed: false }));
+    const L = (url, title, categoryId, note, tags, pinned = false, groupId = null) => ({
+      id: uid(), url, title, categoryId, groupId, note, tags, pinned, favicon: '', attachment: null,
       createdAt: Date.now(), lastOpened: 0, pinnedAt: pinned ? Date.now() : 0,
     });
     return {
@@ -107,9 +109,11 @@
         L('https://mail.google.com', 'Gmail', work, 'Inbox and email.', ['daily', 'email'], true),
         L('https://calendar.google.com', 'Google Calendar', work, 'Meetings and schedule.', ['daily'], true),
         L('https://www.notion.so', 'Notion', work, 'Docs, wiki, and project notes.', ['docs', 'notes']),
-        L('https://developer.mozilla.org', 'MDN Web Docs', learning, 'Reference for HTML, CSS and JavaScript.', ['docs', 'reference', 'web']),
         L('https://www.coursera.org', 'Coursera', learning, 'Online courses.', ['courses']),
-        L('https://www.freecodecamp.org', 'freeCodeCamp', learning, 'Free coding curriculum.', ['courses', 'web']),
+        L('https://developer.mozilla.org', 'MDN Web Docs', learning, 'Reference for HTML, CSS and JavaScript.', ['docs', 'reference', 'web'], false, tech.id),
+        L('https://www.freecodecamp.org', 'freeCodeCamp', learning, 'Free coding curriculum.', ['courses', 'web'], false, tech.id),
+        L('https://www.investopedia.com', 'Investopedia', learning, 'Investing terms and guides.', ['investing', 'reference'], false, stocks.id),
+        L('https://www.tradingview.com', 'TradingView', learning, 'Charts and trading ideas.', ['charts'], false, trading.id),
         L('https://github.com', 'GitHub', tools, 'Code, issues and pull requests.', ['daily', 'code'], true),
         L('https://claude.ai', 'Claude', tools, 'AI assistant.', ['ai', 'daily']),
         L('https://www.figma.com', 'Figma', tools, 'Design and prototyping.', ['design']),
@@ -125,8 +129,15 @@
     if (!raw || !Array.isArray(raw.categories) || !Array.isArray(raw.links)) throw new Error('Not a Linkly backup');
     const categories = raw.categories
       .filter((c) => c && typeof c.name === 'string')
-      .map((c) => ({ id: String(c.id || uid()), name: c.name.slice(0, 40), collapsed: !!c.collapsed }));
-    if (!categories.length) categories.push({ id: uid(), name: 'Links', collapsed: false });
+      .map((c) => ({
+        id: String(c.id || uid()),
+        name: c.name.slice(0, 40),
+        collapsed: !!c.collapsed,
+        groups: (Array.isArray(c.groups) ? c.groups : [])
+          .filter((g) => g && typeof g.name === 'string')
+          .map((g) => ({ id: String(g.id || uid()), name: g.name.slice(0, 40), collapsed: !!g.collapsed })),
+      }));
+    if (!categories.length) categories.push({ id: uid(), name: 'Links', collapsed: false, groups: [] });
     const catIds = new Set(categories.map((c) => c.id));
     const links = raw.links
       .filter((l) => l && (typeof l.url === 'string' || l.attachment))
@@ -137,6 +148,7 @@
         note: String(l.note || ''),
         tags: Array.isArray(l.tags) ? cleanTags(l.tags) : [],
         categoryId: catIds.has(l.categoryId) ? l.categoryId : categories[0].id,
+        groupId: l.groupId ? String(l.groupId) : null,
         pinned: !!l.pinned,
         pinnedAt: Number(l.pinnedAt) || 0,
         favicon: typeof l.favicon === 'string' ? l.favicon : '',
@@ -146,6 +158,11 @@
         createdAt: Number(l.createdAt) || Date.now(),
         lastOpened: Number(l.lastOpened) || 0,
       }));
+    // Drop group references that don't belong to the link's category.
+    for (const l of links) {
+      const cat = categories.find((c) => c.id === l.categoryId);
+      if (l.groupId && !cat.groups.some((g) => g.id === l.groupId)) l.groupId = null;
+    }
     return { version: 1, categories, links };
   }
 
@@ -171,6 +188,10 @@
 
   const getLink = (id) => state.links.find((l) => l.id === id);
   const getCat = (id) => state.categories.find((c) => c.id === id);
+  const getGroup = (catId, groupId) => (groupId ? getCat(catId)?.groups.find((g) => g.id === groupId) : null);
+  // Category + group are picked together in one <select> as "catId|groupId".
+  const placeValue = (catId, groupId) => `${catId}|${groupId || ''}`;
+  const parsePlace = (v) => { const [c, g] = String(v || '').split('|'); return { categoryId: c, groupId: g || null }; };
 
   /* ------------------------------------------------------------------ */
   /* URL helpers                                                         */
@@ -317,7 +338,8 @@
     for (const t of activeTags) if (!link.tags.includes(t)) return false;
     if (!tokens.length) return true;
     const cat = getCat(link.categoryId);
-    const hay = [link.title, link.note, link.tags.join(' '), cat ? cat.name : '', hostOf(link.url), link.attachment?.name || '']
+    const group = getGroup(link.categoryId, link.groupId);
+    const hay = [link.title, link.note, link.tags.join(' '), cat ? cat.name : '', group ? group.name : '', hostOf(link.url), link.attachment?.name || '']
       .join(' ').toLowerCase();
     return tokens.every((t) => hay.includes(t.replace(/^#/, '')));
   }
@@ -391,14 +413,31 @@
     return `<a class="mini" ${href ? `href="${escapeHtml(href)}" target="_blank" rel="noopener"` : ''} data-open data-id="${link.id}" title="${title}"${dl}>${favHTML(link)}<span>${title}</span></a>`;
   }
 
+  const NEW_GROUP = '__new-group';
+
   function renderCategorySelects() {
-    const opts = state.categories.map((c) => `<option value="${c.id}">${escapeHtml(c.name)}</option>`).join('');
+    const opts = state.categories.map((c) =>
+      `<option value="${placeValue(c.id)}">${escapeHtml(c.name)}</option>` +
+      c.groups.map((g) => `<option value="${placeValue(c.id, g.id)}">${escapeHtml(c.name)} › ${escapeHtml(g.name)}</option>`).join('')).join('');
     for (const sel of [$('#qaCategory'), $('#linkForm').elements.categoryId]) {
       const prev = sel.value;
-      sel.innerHTML = opts;
-      if (getCat(prev)) sel.value = prev;
+      sel.innerHTML = opts + `<option value="${NEW_GROUP}">＋ New group…</option>`;
+      const { categoryId, groupId } = parsePlace(prev);
+      if (getCat(categoryId)) sel.value = placeValue(categoryId, getGroup(categoryId, groupId) ? groupId : null);
+      sel.dataset.prev = sel.value;
     }
   }
+
+  // Choosing "New group…" in a place picker creates a group in the category that was selected.
+  function onPlaceChange(e) {
+    const sel = e.target;
+    if (sel.value !== NEW_GROUP) { sel.dataset.prev = sel.value; return; }
+    const { categoryId } = parsePlace(sel.dataset.prev);
+    sel.value = sel.dataset.prev;
+    openGroupDialog(categoryId, null, (group) => { sel.value = placeValue(categoryId, group.id); sel.dataset.prev = sel.value; });
+  }
+  $('#qaCategory').addEventListener('change', onPlaceChange);
+  $('#linkForm').elements.categoryId.addEventListener('change', onPlaceChange);
 
   function renderTagbar() {
     const counts = new Map();
@@ -434,6 +473,33 @@
       const items = all.filter((l) => visible.includes(l));
       if (filtering && !items.length) return;
       const collapsed = cat.collapsed && !filtering;
+      const ungrouped = items.filter((l) => !getGroup(cat.id, l.groupId));
+      const showUngrouped = ungrouped.length || !cat.groups.length;
+      const groupsHTML = cat.groups.map((g, gi) => {
+        const gAll = all.filter((l) => l.groupId === g.id);
+        const gItems = items.filter((l) => l.groupId === g.id);
+        if (filtering && !gItems.length) return '';
+        const gCollapsed = g.collapsed && !filtering;
+        const label = `${escapeHtml(cat.name)} › ${escapeHtml(g.name)}`;
+        return `
+          <div class="group${gCollapsed ? ' collapsed' : ''}" data-cat="${cat.id}" data-group="${g.id}">
+            <div class="group-head" data-cat="${cat.id}" data-group="${g.id}">
+              <h3 class="group-heading"><button type="button" class="group-toggle" data-action="toggle-group" aria-expanded="${!gCollapsed}">
+                ${ICON.chevron}<span class="group-title">${escapeHtml(g.name)}</span>
+                <span class="cat-count">${filtering ? `${gItems.length}/${gAll.length}` : gAll.length}</span>
+              </button></h3>
+              <div class="cat-actions">
+                <button type="button" class="icon-btn" data-action="add-to-group" title="Add link to ${label}" aria-label="Add link to ${label}">${ICON.plus}</button>
+                <button type="button" class="icon-btn" data-action="group-up" title="Move group up" aria-label="Move ${label} up" ${gi === 0 ? 'disabled' : ''}>${ICON.up}</button>
+                <button type="button" class="icon-btn" data-action="group-down" title="Move group down" aria-label="Move ${label} down" ${gi === cat.groups.length - 1 ? 'disabled' : ''}>${ICON.down}</button>
+                <button type="button" class="icon-btn" data-action="edit-group" title="Rename or delete group" aria-label="Edit ${label}">${ICON.edit}</button>
+              </div>
+            </div>
+            <div class="grid" data-cat="${cat.id}" data-group="${g.id}">
+              ${gItems.length ? gItems.map(cardHTML).join('') : '<div class="grid-empty">Empty group — drag links here or use +.</div>'}
+            </div>
+          </div>`;
+      }).join('');
       html.push(`
         <section class="category${collapsed ? ' collapsed' : ''}" data-cat="${cat.id}">
           <div class="cat-head" data-cat="${cat.id}">
@@ -443,13 +509,17 @@
             </button></h2>
             <div class="cat-actions">
               <button type="button" class="icon-btn" data-action="add-to-cat" title="Add link to ${escapeHtml(cat.name)}" aria-label="Add link to ${escapeHtml(cat.name)}">${ICON.plus}</button>
+              <button type="button" class="icon-btn" data-action="add-group" title="New group in ${escapeHtml(cat.name)}" aria-label="New group in ${escapeHtml(cat.name)}">${ICON.folder}</button>
               <button type="button" class="icon-btn" data-action="cat-up" title="Move category up" aria-label="Move ${escapeHtml(cat.name)} up" ${i === 0 ? 'disabled' : ''}>${ICON.up}</button>
               <button type="button" class="icon-btn" data-action="cat-down" title="Move category down" aria-label="Move ${escapeHtml(cat.name)} down" ${i === state.categories.length - 1 ? 'disabled' : ''}>${ICON.down}</button>
               <button type="button" class="icon-btn" data-action="edit-cat" title="Rename or delete category" aria-label="Edit ${escapeHtml(cat.name)}">${ICON.edit}</button>
             </div>
           </div>
-          <div class="grid" data-cat="${cat.id}">
-            ${items.length ? items.map(cardHTML).join('') : '<div class="grid-empty">No links yet — drag one here or use + to add.</div>'}
+          <div class="cat-body">
+            ${showUngrouped ? `<div class="grid" data-cat="${cat.id}" data-group="">
+              ${ungrouped.length ? ungrouped.map(cardHTML).join('') : '<div class="grid-empty">No links yet — drag one here or use + to add.</div>'}
+            </div>` : ''}
+            ${groupsHTML}
           </div>
         </section>`);
     });
@@ -559,17 +629,24 @@
     });
   }
 
-  /** Re-insert a link into a category, before `beforeId` (or at the end). */
-  function moveLink(id, categoryId, beforeId) {
+  /** Re-insert a link into a category/group, before `beforeId` (or at the end of that group). */
+  function moveLink(id, { categoryId, groupId = null }, beforeId) {
     const from = state.links.findIndex((l) => l.id === id);
     if (from < 0) return;
     const [link] = state.links.splice(from, 1);
     link.categoryId = categoryId;
+    link.groupId = getGroup(categoryId, groupId) ? groupId : null;
     let to = beforeId ? state.links.findIndex((l) => l.id === beforeId) : -1;
     if (to < 0) {
-      // After the last link of the target category, or at the very end.
-      let last = -1;
-      state.links.forEach((l, i) => { if (l.categoryId === categoryId) last = i; });
+      // After the last link of the target group, else of the category, else at the very end.
+      let lastInGroup = -1;
+      let lastInCat = -1;
+      state.links.forEach((l, i) => {
+        if (l.categoryId !== categoryId) return;
+        lastInCat = i;
+        if (l.groupId === link.groupId) lastInGroup = i;
+      });
+      const last = lastInGroup >= 0 ? lastInGroup : lastInCat;
       to = last >= 0 ? last + 1 : state.links.length;
     }
     state.links.splice(to, 0, link);
@@ -579,13 +656,13 @@
 
   function nudgeLink(id, delta) {
     const link = getLink(id);
-    const siblings = state.links.filter((l) => l.categoryId === link.categoryId);
+    const siblings = state.links.filter((l) => l.categoryId === link.categoryId && l.groupId === link.groupId);
     const i = siblings.indexOf(link);
     const j = i + delta;
     if (j < 0 || j >= siblings.length) return;
     // Moving down by one means inserting before the item two places ahead.
     const before = delta < 0 ? siblings[j] : siblings[j + 1];
-    moveLink(id, link.categoryId, before ? before.id : null);
+    moveLink(id, link, before ? before.id : null);
     $(`#categories .card[data-id="${CSS.escape(id)}"] .drag-handle`)?.focus();
   }
 
@@ -605,6 +682,20 @@
     if (changed) { save(); render(); }
   }
 
+  const placeName = (link) => {
+    const cat = getCat(link.categoryId);
+    const group = getGroup(link.categoryId, link.groupId);
+    return cat ? (group ? `${cat.name} › ${group.name}` : cat.name) : '';
+  };
+
+  /** Expand a collapsed category/group so a link landing there is visible. */
+  function revealPlace({ categoryId, groupId }) {
+    const cat = getCat(categoryId);
+    if (cat) cat.collapsed = false;
+    const group = getGroup(categoryId, groupId);
+    if (group) group.collapsed = false;
+  }
+
   function findDuplicate(url, exceptId) {
     return state.links.find((l) => l.url && l.url === url && l.id !== exceptId);
   }
@@ -613,36 +704,37 @@
     e.preventDefault();
     const raw = $('#qaUrl').value;
     if (!raw.trim()) {
-      openLinkDialog(null, { categoryId: $('#qaCategory').value, tags: $('#qaTags').value });
+      openLinkDialog(null, { place: $('#qaCategory').value, tags: $('#qaTags').value });
       return;
     }
     const url = normalizeUrl(raw);
     if (!url) { toast('That does not look like a valid URL.'); $('#qaUrl').focus(); return; }
     const dup = findDuplicate(url);
     if (dup) {
-      toast(`Already saved in ${getCat(dup.categoryId)?.name || 'your hub'}.`);
+      toast(`Already saved in ${placeName(dup) || 'your hub'}.`);
       flash(dup.id);
       return;
     }
     const title = guessTitle(url);
+    const place = parsePlace($('#qaCategory').value);
+    if (!getCat(place.categoryId)) place.categoryId = state.categories[0].id;
     const link = {
       id: uid(), url, title, note: '', tags: parseTags($('#qaTags').value),
-      categoryId: $('#qaCategory').value || state.categories[0].id,
+      categoryId: place.categoryId, groupId: null,
       pinned: false, pinnedAt: 0, favicon: '', attachment: null, createdAt: Date.now(), lastOpened: 0,
     };
     state.links.push(link);
-    moveLink(link.id, link.categoryId, null);
+    revealPlace(place);
+    moveLink(link.id, place, null);
     $('#qaUrl').value = '';
     $('#qaTags').value = '';
-    const cat = getCat(link.categoryId);
-    if (cat.collapsed) { cat.collapsed = false; save(); render(); }
     flash(link.id);
-    toast(`Added to ${cat.name}`, { label: 'Edit', run: () => openLinkDialog(link.id) });
+    toast(`Added to ${placeName(link)}`, { label: 'Edit', run: () => openLinkDialog(link.id) });
     autofill(link.id, title);
   });
 
   $('#qaMore').addEventListener('click', () => {
-    openLinkDialog(null, { url: $('#qaUrl').value, categoryId: $('#qaCategory').value, tags: $('#qaTags').value });
+    openLinkDialog(null, { url: $('#qaUrl').value, place: $('#qaCategory').value, tags: $('#qaTags').value });
   });
 
   /* ------------------------------------------------------------------ */
@@ -672,7 +764,9 @@
     f.title.value = link ? link.title : '';
     f.note.value = link ? link.note : '';
     f.tags.value = link ? link.tags.join(', ') : (preset.tags || '');
-    f.categoryId.value = link ? link.categoryId : (preset.categoryId || state.categories[0].id);
+    f.categoryId.value = link ? placeValue(link.categoryId, link.groupId) : (preset.place || placeValue(state.categories[0].id));
+    if (!f.categoryId.value) f.categoryId.value = placeValue(state.categories[0].id);
+    f.categoryId.dataset.prev = f.categoryId.value;
     f.pinned.checked = link ? link.pinned : false;
     f.file.value = '';
     $('#deleteLinkBtn').hidden = !link;
@@ -763,13 +857,16 @@
       return;
     }
 
-    const newCat = f.categoryId.value;
+    const place = parsePlace(f.categoryId.value);
+    if (!getCat(place.categoryId)) place.categoryId = state.categories[0].id;
+    revealPlace(place);
     if (!existing) {
-      link.categoryId = newCat;
+      link.categoryId = place.categoryId;
+      link.groupId = null;
       state.links.push(link);
-      moveLink(id, newCat, null);
-    } else if (existing.categoryId !== newCat) {
-      moveLink(id, newCat, null);
+      moveLink(id, place, null);
+    } else if (existing.categoryId !== place.categoryId || existing.groupId !== place.groupId) {
+      moveLink(id, place, null);
     } else {
       save();
       render();
@@ -789,39 +886,74 @@
   /* ------------------------------------------------------------------ */
   /* Category dialog                                                     */
   /* ------------------------------------------------------------------ */
+  // One small "name" dialog serves both categories and groups.
   const catDialog = $('#catDialog');
   const catForm = $('#catForm');
-  let editingCat = null;
+  let nameDialog = null; // { onSave(name), onDelete?() }
 
-  function openCatDialog(id) {
-    editingCat = id;
-    const cat = id ? getCat(id) : null;
-    $('#catDialogTitle').textContent = cat ? 'Edit category' : 'New category';
-    catForm.elements.name.value = cat ? cat.name : '';
-    $('#deleteCatBtn').hidden = !cat || state.categories.length <= 1;
+  function openNameDialog({ title, value = '', onSave, onDelete }) {
+    nameDialog = { onSave, onDelete };
+    $('#catDialogTitle').textContent = title;
+    catForm.elements.name.value = value;
+    $('#deleteCatBtn').hidden = !onDelete;
     catDialog.showModal();
     catForm.elements.name.select();
+  }
+
+  function openCatDialog(id) {
+    const cat = id ? getCat(id) : null;
+    openNameDialog({
+      title: cat ? 'Edit category' : 'New category',
+      value: cat ? cat.name : '',
+      onSave: (name) => {
+        if (cat) cat.name = name;
+        else state.categories.push({ id: uid(), name, collapsed: false, groups: [] });
+      },
+      onDelete: cat && state.categories.length > 1 ? () => {
+        const others = state.categories.filter((c) => c.id !== cat.id);
+        const count = state.links.filter((l) => l.categoryId === cat.id).length;
+        const target = others[0];
+        if (count && !confirm(`Delete “${cat.name}”? Its ${count} ${count === 1 ? 'link' : 'links'} will move to “${target.name}”.`)) return false;
+        state.links.forEach((l) => { if (l.categoryId === cat.id) { l.categoryId = target.id; l.groupId = null; } });
+        state.categories = others;
+      } : null,
+    });
+  }
+
+  function openGroupDialog(catId, groupId, afterCreate) {
+    const cat = getCat(catId);
+    const group = getGroup(catId, groupId);
+    openNameDialog({
+      title: group ? `Edit group in ${cat.name}` : `New group in ${cat.name}`,
+      value: group ? group.name : '',
+      onSave: (name) => {
+        if (group) { group.name = name; return; }
+        const created = { id: uid(), name, collapsed: false };
+        cat.groups.push(created);
+        if (cat.collapsed) cat.collapsed = false;
+        if (afterCreate) setTimeout(() => afterCreate(created), 0);
+      },
+      onDelete: group ? () => {
+        const count = state.links.filter((l) => l.groupId === group.id).length;
+        if (count && !confirm(`Delete group “${group.name}”? Its ${count} ${count === 1 ? 'link stays' : 'links stay'} in ${cat.name}, ungrouped.`)) return false;
+        state.links.forEach((l) => { if (l.groupId === group.id) l.groupId = null; });
+        cat.groups = cat.groups.filter((g) => g.id !== group.id);
+      } : null,
+    });
   }
 
   catForm.addEventListener('submit', (e) => {
     e.preventDefault();
     const name = catForm.elements.name.value.trim();
     if (!name) return;
-    if (editingCat) getCat(editingCat).name = name;
-    else state.categories.push({ id: uid(), name, collapsed: false });
+    nameDialog.onSave(name);
     save();
     render();
     catDialog.close();
   });
 
   $('#deleteCatBtn').addEventListener('click', () => {
-    const cat = getCat(editingCat);
-    const others = state.categories.filter((c) => c.id !== cat.id);
-    const count = state.links.filter((l) => l.categoryId === cat.id).length;
-    const target = others[0];
-    if (count && !confirm(`Delete “${cat.name}”? Its ${count} ${count === 1 ? 'link' : 'links'} will move to “${target.name}”.`)) return;
-    state.links.forEach((l) => { if (l.categoryId === cat.id) l.categoryId = target.id; });
-    state.categories = others;
+    if (nameDialog.onDelete() === false) return;
     save();
     render();
     catDialog.close();
@@ -862,6 +994,8 @@
     const catEl = btn.closest('[data-cat]');
     const id = card?.dataset.id;
     const catId = catEl?.dataset.cat;
+    const groupId = btn.closest('[data-group]')?.dataset.group || null;
+    const filtering = searchInput.value.trim() || activeTags.size;
 
     switch (btn.dataset.action) {
       case 'pin': togglePin(id); break;
@@ -872,15 +1006,38 @@
         render();
         break;
       case 'toggle-cat': {
-        if (searchInput.value.trim() || activeTags.size) break; // always expanded while filtering
+        if (filtering) break; // always expanded while filtering
         const cat = getCat(catId);
         cat.collapsed = !cat.collapsed;
         save();
         render();
         break;
       }
-      case 'add-to-cat': openLinkDialog(null, { categoryId: catId }); break;
+      case 'add-to-cat': openLinkDialog(null, { place: placeValue(catId) }); break;
       case 'edit-cat': openCatDialog(catId); break;
+      case 'add-group': openGroupDialog(catId, null); break;
+      case 'toggle-group': {
+        if (filtering) break;
+        const group = getGroup(catId, groupId);
+        group.collapsed = !group.collapsed;
+        save();
+        render();
+        break;
+      }
+      case 'add-to-group': openLinkDialog(null, { place: placeValue(catId, groupId) }); break;
+      case 'edit-group': openGroupDialog(catId, groupId); break;
+      case 'group-up':
+      case 'group-down': {
+        const groups = getCat(catId).groups;
+        const i = groups.findIndex((g) => g.id === groupId);
+        const j = i + (btn.dataset.action === 'group-up' ? -1 : 1);
+        if (j < 0 || j >= groups.length) break;
+        [groups[i], groups[j]] = [groups[j], groups[i]];
+        save();
+        render();
+        $(`.group-head[data-group="${CSS.escape(groupId)}"] [data-action="${btn.dataset.action}"]`)?.focus();
+        break;
+      }
       case 'cat-up':
       case 'cat-down': {
         const i = state.categories.findIndex((c) => c.id === catId);
@@ -966,9 +1123,9 @@
     drag.headTarget = null;
     if (!el) return;
 
-    const head = el.closest('.cat-head');
+    const head = el.closest('.cat-head, .group-head');
     if (head) {
-      // Dropping on a header (useful when the category is collapsed) appends to it.
+      // Dropping on a header (useful when collapsed) appends to that category or group.
       head.classList.add('drop-target');
       drag.headTarget = head;
       return;
@@ -1000,12 +1157,14 @@
     if (!commit) { render(); return; }
 
     if (d.headTarget) {
-      moveLink(d.id, d.headTarget.dataset.cat, null);
+      const place = { categoryId: d.headTarget.dataset.cat, groupId: d.headTarget.dataset.group || null };
+      revealPlace(place);
+      moveLink(d.id, place, null);
     } else {
       const grid = d.placeholder.parentElement;
       let next = d.placeholder.nextElementSibling;
       while (next && !(next.classList.contains('card') && !next.classList.contains('dragging'))) next = next.nextElementSibling;
-      if (grid?.dataset.cat) moveLink(d.id, grid.dataset.cat, next ? next.dataset.id : null);
+      if (grid?.dataset.cat) moveLink(d.id, { categoryId: grid.dataset.cat, groupId: grid.dataset.group || null }, next ? next.dataset.id : null);
       else render();
     }
     flash(d.id);
@@ -1156,12 +1315,19 @@
     const { data, files } = pendingImport;
     pendingImport = null;
     $('#importDialog').close();
-    // Match categories by name; create the ones that don't exist yet.
+    // Match categories (and groups within them) by name; create the ones that don't exist yet.
     const catMap = new Map();
+    const groupMap = new Map();
+    const sameName = (a, b) => a.name.toLowerCase() === b.name.toLowerCase();
     for (const c of data.categories) {
-      let mine = state.categories.find((x) => x.name.toLowerCase() === c.name.toLowerCase());
-      if (!mine) { mine = { id: uid(), name: c.name, collapsed: false }; state.categories.push(mine); }
+      let mine = state.categories.find((x) => sameName(x, c));
+      if (!mine) { mine = { id: uid(), name: c.name, collapsed: false, groups: [] }; state.categories.push(mine); }
       catMap.set(c.id, mine.id);
+      for (const g of c.groups) {
+        let myGroup = mine.groups.find((x) => sameName(x, g));
+        if (!myGroup) { myGroup = { id: uid(), name: g.name, collapsed: false }; mine.groups.push(myGroup); }
+        groupMap.set(g.id, myGroup.id);
+      }
     }
     let added = 0;
     for (const link of data.links) {
@@ -1169,6 +1335,7 @@
       const oldId = link.id;
       link.id = uid();
       link.categoryId = catMap.get(link.categoryId);
+      link.groupId = link.groupId ? groupMap.get(link.groupId) || null : null;
       if (link.attachment && !(await restoreFile(link.id, files[oldId]))) link.attachment = null;
       state.links.push(link);
       added++;
