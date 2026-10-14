@@ -32,7 +32,12 @@
     plus: '<svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>',
     up: '<svg viewBox="0 0 24 24"><path d="M12 19V5M6 11l6-6 6 6"/></svg>',
     down: '<svg viewBox="0 0 24 24"><path d="M12 5v14M6 13l6 6 6-6"/></svg>',
-    folder: '<svg viewBox="0 0 24 24"><path d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2z"/><path d="M12 11v4M10 13h4"/></svg>',
+    folderPlus: '<svg viewBox="0 0 24 24"><path d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2z"/><path d="M12 11v4M10 13h4"/></svg>',
+    folder: '<svg viewBox="0 0 24 24"><path d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2z"/></svg>',
+    folderOpen: '<svg viewBox="0 0 24 24"><path d="M3 7a2 2 0 012-2h4l2 2h7a2 2 0 012 2v1"/><path d="M3 7v10a2 2 0 002 2h12.5a2 2 0 001.9-1.4l1.6-5A1.5 1.5 0 0019.6 11H7.4a2 2 0 00-1.9 1.4L3 19"/></svg>',
+    copy: '<svg viewBox="0 0 24 24"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15H4a1 1 0 01-1-1V4a1 1 0 011-1h10a1 1 0 011 1v1"/></svg>',
+    hash: '<svg viewBox="0 0 24 24"><path d="M5 9h14M5 15h14M10 4L8 20M16 4l-2 16"/></svg>',
+    check: '<svg viewBox="0 0 24 24"><path d="M5 12l5 5 9-10"/></svg>',
   };
 
   /* ------------------------------------------------------------------ */
@@ -97,7 +102,10 @@
   function seed() {
     const cats = ['Work', 'Learning', 'Tools', 'Social', 'Finance'].map((name) => ({ id: uid(), name, collapsed: false, groups: [] }));
     const [work, learning, tools, social, finance] = cats.map((c) => c.id);
-    const [tech, stocks, trading] = cats[1].groups = ['Technology', 'Stocks', 'Trading'].map((name) => ({ id: uid(), name, collapsed: false }));
+    const F = (name, parentId = null) => ({ id: uid(), name, collapsed: false, parentId });
+    const [tech, stocks, trading] = ['Technology', 'Stocks', 'Trading'].map((name) => F(name));
+    const webDev = F('Web development', tech.id);
+    cats[1].groups = [tech, webDev, stocks, trading];
     const L = (url, title, categoryId, note, tags, pinned = false, groupId = null) => ({
       id: uid(), url, title, categoryId, groupId, note, tags, pinned, favicon: '', attachment: null,
       createdAt: Date.now(), lastOpened: 0, pinnedAt: pinned ? Date.now() : 0,
@@ -110,8 +118,9 @@
         L('https://calendar.google.com', 'Google Calendar', work, 'Meetings and schedule.', ['daily'], true),
         L('https://www.notion.so', 'Notion', work, 'Docs, wiki, and project notes.', ['docs', 'notes']),
         L('https://www.coursera.org', 'Coursera', learning, 'Online courses.', ['courses']),
-        L('https://developer.mozilla.org', 'MDN Web Docs', learning, 'Reference for HTML, CSS and JavaScript.', ['docs', 'reference', 'web'], false, tech.id),
-        L('https://www.freecodecamp.org', 'freeCodeCamp', learning, 'Free coding curriculum.', ['courses', 'web'], false, tech.id),
+        L('https://developer.mozilla.org', 'MDN Web Docs', learning, 'Reference for HTML, CSS and JavaScript.', ['docs', 'reference', 'web'], false, webDev.id),
+        L('https://www.freecodecamp.org', 'freeCodeCamp', learning, 'Free coding curriculum.', ['courses', 'web'], false, webDev.id),
+        L('https://news.ycombinator.com', 'Hacker News', learning, 'Tech news and discussion.', ['news'], false, tech.id),
         L('https://www.investopedia.com', 'Investopedia', learning, 'Investing terms and guides.', ['investing', 'reference'], false, stocks.id),
         L('https://www.tradingview.com', 'TradingView', learning, 'Charts and trading ideas.', ['charts'], false, trading.id),
         L('https://github.com', 'GitHub', tools, 'Code, issues and pull requests.', ['daily', 'code'], true),
@@ -135,8 +144,19 @@
         collapsed: !!c.collapsed,
         groups: (Array.isArray(c.groups) ? c.groups : [])
           .filter((g) => g && typeof g.name === 'string')
-          .map((g) => ({ id: String(g.id || uid()), name: g.name.slice(0, 40), collapsed: !!g.collapsed })),
+          .map((g) => ({ id: String(g.id || uid()), name: g.name.slice(0, 40), collapsed: !!g.collapsed, parentId: g.parentId ? String(g.parentId) : null })),
       }));
+    // Folders nest via parentId; drop parents that are missing or would form a loop.
+    for (const cat of categories) {
+      const byId = new Map(cat.groups.map((g) => [g.id, g]));
+      for (const g of cat.groups) {
+        const seen = new Set([g.id]);
+        for (let p = g.parentId; p; p = byId.get(p)?.parentId) {
+          if (!byId.has(p) || seen.has(p)) { g.parentId = null; break; }
+          seen.add(p);
+        }
+      }
+    }
     if (!categories.length) categories.push({ id: uid(), name: 'Links', collapsed: false, groups: [] });
     const catIds = new Set(categories.map((c) => c.id));
     const links = raw.links
@@ -189,7 +209,32 @@
   const getLink = (id) => state.links.find((l) => l.id === id);
   const getCat = (id) => state.categories.find((c) => c.id === id);
   const getGroup = (catId, groupId) => (groupId ? getCat(catId)?.groups.find((g) => g.id === groupId) : null);
-  // Category + group are picked together in one <select> as "catId|groupId".
+  // Folders ("groups") live flat in cat.groups and nest through parentId; array order is sibling order.
+  const childFolders = (cat, parentId) => cat.groups.filter((g) => (g.parentId || null) === (parentId || null));
+  /** Folders from the top level down to `groupId`. */
+  function folderPath(catId, groupId) {
+    const path = [];
+    for (let g = getGroup(catId, groupId); g; g = getGroup(catId, g.parentId)) path.unshift(g);
+    return path;
+  }
+  /** A folder's id plus the ids of every folder nested inside it. */
+  function folderAndDescendants(cat, id) {
+    const ids = new Set([id]);
+    for (let grew = true; grew;) {
+      grew = false;
+      for (const g of cat.groups) if (g.parentId && ids.has(g.parentId) && !ids.has(g.id)) { ids.add(g.id); grew = true; }
+    }
+    return ids;
+  }
+  /** Depth-first list of a category's folders, as [{ folder, depth }]. */
+  function folderTree(cat, parentId = null, depth = 0, out = []) {
+    for (const g of childFolders(cat, parentId)) {
+      out.push({ folder: g, depth });
+      folderTree(cat, g.id, depth + 1, out);
+    }
+    return out;
+  }
+  // Category + folder are picked together in one <select> as "catId|groupId".
   const placeValue = (catId, groupId) => `${catId}|${groupId || ''}`;
   const parsePlace = (v) => { const [c, g] = String(v || '').split('|'); return { categoryId: c, groupId: g || null }; };
 
@@ -338,8 +383,8 @@
     for (const t of activeTags) if (!link.tags.includes(t)) return false;
     if (!tokens.length) return true;
     const cat = getCat(link.categoryId);
-    const group = getGroup(link.categoryId, link.groupId);
-    const hay = [link.title, link.note, link.tags.join(' '), cat ? cat.name : '', group ? group.name : '', hostOf(link.url), link.attachment?.name || '']
+    const folders = folderPath(link.categoryId, link.groupId).map((g) => g.name).join(' ');
+    const hay = [link.title, link.note, link.tags.join(' '), cat ? cat.name : '', folders, hostOf(link.url), link.attachment?.name || '']
       .join(' ').toLowerCase();
     return tokens.every((t) => hay.includes(t.replace(/^#/, '')));
   }
@@ -399,6 +444,7 @@
         ${(tags || link.attachment || link.pinned) ? `<div class="card-foot">${link.pinned ? `<span class="pin-badge" title="Pinned">${ICON.pin}</span>` : ''}${attachHTML(link)}${tags}</div>` : ''}
         <div class="card-actions">
           <button type="button" class="icon-btn drag-handle" title="Drag to reorder (or use arrow keys)" aria-label="Reorder ${title}">${ICON.grip}</button>
+          ${safeHref(link.url) ? `<button type="button" class="icon-btn" data-action="copy" title="Copy link" aria-label="Copy link to ${title}">${ICON.copy}</button>` : ''}
           <button type="button" class="icon-btn${link.pinned ? ' pin-on' : ''}" data-action="pin" title="${link.pinned ? 'Unpin' : 'Pin'}" aria-label="${link.pinned ? 'Unpin' : 'Pin'} ${title}" aria-pressed="${link.pinned}">${ICON.pin}</button>
           <button type="button" class="icon-btn" data-action="edit" title="Edit" aria-label="Edit ${title}">${ICON.edit}</button>
           <button type="button" class="icon-btn" data-action="delete" title="Delete" aria-label="Delete ${title}">${ICON.trash}</button>
@@ -418,23 +464,23 @@
   function renderCategorySelects() {
     const opts = state.categories.map((c) =>
       `<option value="${placeValue(c.id)}">${escapeHtml(c.name)}</option>` +
-      c.groups.map((g) => `<option value="${placeValue(c.id, g.id)}">${escapeHtml(c.name)} › ${escapeHtml(g.name)}</option>`).join('')).join('');
+      folderTree(c).map(({ folder }) => `<option value="${placeValue(c.id, folder.id)}">${escapeHtml(placeName({ categoryId: c.id, groupId: folder.id }))}</option>`).join('')).join('');
     for (const sel of [$('#qaCategory'), $('#linkForm').elements.categoryId]) {
       const prev = sel.value;
-      sel.innerHTML = opts + `<option value="${NEW_GROUP}">＋ New group…</option>`;
+      sel.innerHTML = opts + `<option value="${NEW_GROUP}">＋ New folder here…</option>`;
       const { categoryId, groupId } = parsePlace(prev);
       if (getCat(categoryId)) sel.value = placeValue(categoryId, getGroup(categoryId, groupId) ? groupId : null);
       sel.dataset.prev = sel.value;
     }
   }
 
-  // Choosing "New group…" in a place picker creates a group in the category that was selected.
+  // Choosing "New folder here…" in a place picker creates a folder inside whatever was selected.
   function onPlaceChange(e) {
     const sel = e.target;
     if (sel.value !== NEW_GROUP) { sel.dataset.prev = sel.value; return; }
-    const { categoryId } = parsePlace(sel.dataset.prev);
+    const { categoryId, groupId } = parsePlace(sel.dataset.prev);
     sel.value = sel.dataset.prev;
-    openGroupDialog(categoryId, null, (group) => { sel.value = placeValue(categoryId, group.id); sel.dataset.prev = sel.value; });
+    openGroupDialog(categoryId, null, (group) => { sel.value = placeValue(categoryId, group.id); sel.dataset.prev = sel.value; }, groupId);
   }
   $('#qaCategory').addEventListener('change', onPlaceChange);
   $('#linkForm').elements.categoryId.addEventListener('change', onPlaceChange);
@@ -447,6 +493,67 @@
     $('#tagbar').innerHTML = !tags.length ? '' :
       tags.map(([t, n]) => `<button type="button" class="chip" data-tag="${escapeHtml(t)}" aria-pressed="${activeTags.has(t)}">#${escapeHtml(t)} <span class="chip-count">${n}</span></button>`).join('') +
       (activeTags.size ? '<button type="button" class="chip chip-clear" data-action="clear-tags">Clear filter</button>' : '');
+  }
+
+  /** One folder section, with its own links first and then its sub-folders (recursively). */
+  function folderHTML(cat, g, all, items, filtering, depth) {
+    const ids = folderAndDescendants(cat, g.id);
+    const total = all.filter((l) => ids.has(l.groupId)).length;
+    const shown = items.filter((l) => ids.has(l.groupId)).length;
+    if (filtering && !shown) return '';
+    const direct = items.filter((l) => l.groupId === g.id);
+    const children = childFolders(cat, g.id);
+    const siblings = childFolders(cat, g.parentId);
+    const pos = siblings.indexOf(g);
+    const collapsed = g.collapsed && !filtering;
+    const label = escapeHtml(placeName({ categoryId: cat.id, groupId: g.id }));
+    const showGrid = filtering ? direct.length : (direct.length || !children.length);
+    return `
+      <div class="group${collapsed ? ' collapsed' : ''}" data-cat="${cat.id}" data-group="${g.id}" data-depth="${depth}">
+        <div class="group-head" data-cat="${cat.id}" data-group="${g.id}">
+          <h3 class="group-heading"><button type="button" class="group-toggle" data-action="toggle-group" aria-expanded="${!collapsed}">
+            ${ICON.chevron}<span class="group-icon">${collapsed ? ICON.folder : ICON.folderOpen}</span><span class="group-title">${escapeHtml(g.name)}</span>
+            <span class="cat-count">${filtering ? `${shown}/${total}` : total}</span>
+          </button></h3>
+          <div class="cat-actions">
+            <button type="button" class="icon-btn" data-action="add-to-group" title="Add link to ${label}" aria-label="Add link to ${label}">${ICON.plus}</button>
+            <button type="button" class="icon-btn" data-action="add-subfolder" title="New sub-folder in ${label}" aria-label="New sub-folder in ${label}">${ICON.folderPlus}</button>
+            <button type="button" class="icon-btn" data-action="group-up" title="Move folder up" aria-label="Move ${label} up" ${pos === 0 ? 'disabled' : ''}>${ICON.up}</button>
+            <button type="button" class="icon-btn" data-action="group-down" title="Move folder down" aria-label="Move ${label} down" ${pos === siblings.length - 1 ? 'disabled' : ''}>${ICON.down}</button>
+            <button type="button" class="icon-btn" data-action="edit-group" title="Rename or delete folder" aria-label="Edit ${label}">${ICON.edit}</button>
+          </div>
+        </div>
+        <div class="group-body">
+          ${showGrid ? `<div class="grid" data-cat="${cat.id}" data-group="${g.id}">
+            ${direct.length ? direct.map(cardHTML).join('') : '<div class="grid-empty">Empty folder — drag links here or use +.</div>'}
+          </div>` : ''}
+          ${children.map((c) => folderHTML(cat, c, all, items, filtering, depth + 1)).join('')}
+        </div>
+      </div>`;
+  }
+
+  /** Folder tree for quick navigation on wide screens. */
+  function renderSidebar(visible, filtering) {
+    const count = (catId, ids) => visible.filter((l) => l.categoryId === catId && (!ids || ids.has(l.groupId))).length;
+    const item = (attrs, label, n, depth, icon) => `
+      <button type="button" class="tree-item" ${attrs} style="--depth:${depth}" ${filtering && !n ? 'disabled' : ''}>
+        ${icon}<span class="tree-label">${escapeHtml(label)}</span><span class="tree-count">${n}</span>
+      </button>`;
+    $('#sidebar').innerHTML = `<div class="tree-title">Browse</div>` + state.categories.map((cat) =>
+      item(`data-jump-cat="${cat.id}"`, cat.name, count(cat.id), 0, ICON.hash) +
+      folderTree(cat).map(({ folder, depth }) =>
+        item(`data-jump-cat="${cat.id}" data-jump-group="${folder.id}"`, folder.name, count(cat.id, folderAndDescendants(cat, folder.id)), depth + 1, ICON.folder)).join('')
+    ).join('');
+  }
+
+  function jumpTo(catId, groupId) {
+    revealPlace({ categoryId: catId, groupId });
+    save();
+    render();
+    const target = groupId ? $(`.group-head[data-group="${CSS.escape(groupId)}"]`) : $(`.cat-head[data-cat="${CSS.escape(catId)}"]`);
+    if (!target) return;
+    target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    target.animate([{ background: 'var(--accent-soft)' }, { background: 'transparent' }], { duration: 1400, easing: 'ease-out' });
   }
 
   function render() {
@@ -474,32 +581,9 @@
       if (filtering && !items.length) return;
       const collapsed = cat.collapsed && !filtering;
       const ungrouped = items.filter((l) => !getGroup(cat.id, l.groupId));
-      const showUngrouped = ungrouped.length || !cat.groups.length;
-      const groupsHTML = cat.groups.map((g, gi) => {
-        const gAll = all.filter((l) => l.groupId === g.id);
-        const gItems = items.filter((l) => l.groupId === g.id);
-        if (filtering && !gItems.length) return '';
-        const gCollapsed = g.collapsed && !filtering;
-        const label = `${escapeHtml(cat.name)} › ${escapeHtml(g.name)}`;
-        return `
-          <div class="group${gCollapsed ? ' collapsed' : ''}" data-cat="${cat.id}" data-group="${g.id}">
-            <div class="group-head" data-cat="${cat.id}" data-group="${g.id}">
-              <h3 class="group-heading"><button type="button" class="group-toggle" data-action="toggle-group" aria-expanded="${!gCollapsed}">
-                ${ICON.chevron}<span class="group-title">${escapeHtml(g.name)}</span>
-                <span class="cat-count">${filtering ? `${gItems.length}/${gAll.length}` : gAll.length}</span>
-              </button></h3>
-              <div class="cat-actions">
-                <button type="button" class="icon-btn" data-action="add-to-group" title="Add link to ${label}" aria-label="Add link to ${label}">${ICON.plus}</button>
-                <button type="button" class="icon-btn" data-action="group-up" title="Move group up" aria-label="Move ${label} up" ${gi === 0 ? 'disabled' : ''}>${ICON.up}</button>
-                <button type="button" class="icon-btn" data-action="group-down" title="Move group down" aria-label="Move ${label} down" ${gi === cat.groups.length - 1 ? 'disabled' : ''}>${ICON.down}</button>
-                <button type="button" class="icon-btn" data-action="edit-group" title="Rename or delete group" aria-label="Edit ${label}">${ICON.edit}</button>
-              </div>
-            </div>
-            <div class="grid" data-cat="${cat.id}" data-group="${g.id}">
-              ${gItems.length ? gItems.map(cardHTML).join('') : '<div class="grid-empty">Empty group — drag links here or use +.</div>'}
-            </div>
-          </div>`;
-      }).join('');
+      const topFolders = childFolders(cat, null);
+      const showUngrouped = ungrouped.length || !topFolders.length;
+      const groupsHTML = topFolders.map((g) => folderHTML(cat, g, all, items, filtering, 1)).join('');
       html.push(`
         <section class="category${collapsed ? ' collapsed' : ''}" data-cat="${cat.id}">
           <div class="cat-head" data-cat="${cat.id}">
@@ -509,7 +593,7 @@
             </button></h2>
             <div class="cat-actions">
               <button type="button" class="icon-btn" data-action="add-to-cat" title="Add link to ${escapeHtml(cat.name)}" aria-label="Add link to ${escapeHtml(cat.name)}">${ICON.plus}</button>
-              <button type="button" class="icon-btn" data-action="add-group" title="New group in ${escapeHtml(cat.name)}" aria-label="New group in ${escapeHtml(cat.name)}">${ICON.folder}</button>
+              <button type="button" class="icon-btn" data-action="add-group" title="New folder in ${escapeHtml(cat.name)}" aria-label="New folder in ${escapeHtml(cat.name)}">${ICON.folderPlus}</button>
               <button type="button" class="icon-btn" data-action="cat-up" title="Move category up" aria-label="Move ${escapeHtml(cat.name)} up" ${i === 0 ? 'disabled' : ''}>${ICON.up}</button>
               <button type="button" class="icon-btn" data-action="cat-down" title="Move category down" aria-label="Move ${escapeHtml(cat.name)} down" ${i === state.categories.length - 1 ? 'disabled' : ''}>${ICON.down}</button>
               <button type="button" class="icon-btn" data-action="edit-cat" title="Rename or delete category" aria-label="Edit ${escapeHtml(cat.name)}">${ICON.edit}</button>
@@ -524,6 +608,7 @@
         </section>`);
     });
     $('#categories').innerHTML = html.join('');
+    renderSidebar(visible, filtering);
 
     const status = $('#status');
     if (filtering) {
@@ -597,6 +682,38 @@
     save();
     // Defer so the browser finishes following the link before the DOM is rebuilt.
     setTimeout(render, 100);
+  }
+
+  async function copyText(text) {
+    try {
+      await navigator.clipboard.writeText(text);
+      return true;
+    } catch {
+      // Fallback for browsers/contexts without the async clipboard API (e.g. some file:// pages).
+      const ta = document.createElement('textarea');
+      ta.value = text;
+      ta.setAttribute('readonly', '');
+      ta.style.cssText = 'position:fixed;opacity:0;pointer-events:none';
+      document.body.append(ta);
+      ta.select();
+      let ok = false;
+      try { ok = document.execCommand('copy'); } catch { /* ignore */ }
+      ta.remove();
+      return ok;
+    }
+  }
+
+  async function copyLink(id, btn) {
+    const link = getLink(id);
+    if (!link?.url) return;
+    if (!(await copyText(link.url))) { toast('Could not copy — your browser blocked clipboard access.'); return; }
+    toast('Link copied to clipboard');
+    // Briefly swap the icon to a check mark as confirmation.
+    if (btn?.isConnected) {
+      btn.innerHTML = ICON.check;
+      btn.classList.add('copied');
+      setTimeout(() => { if (btn.isConnected) { btn.innerHTML = ICON.copy; btn.classList.remove('copied'); } }, 1500);
+    }
   }
 
   function togglePin(id) {
@@ -682,18 +799,16 @@
     if (changed) { save(); render(); }
   }
 
-  const placeName = (link) => {
-    const cat = getCat(link.categoryId);
-    const group = getGroup(link.categoryId, link.groupId);
-    return cat ? (group ? `${cat.name} › ${group.name}` : cat.name) : '';
-  };
+  function placeName({ categoryId, groupId }) {
+    const cat = getCat(categoryId);
+    return cat ? [cat.name, ...folderPath(categoryId, groupId).map((g) => g.name)].join(' › ') : '';
+  }
 
   /** Expand a collapsed category/group so a link landing there is visible. */
   function revealPlace({ categoryId, groupId }) {
     const cat = getCat(categoryId);
     if (cat) cat.collapsed = false;
-    const group = getGroup(categoryId, groupId);
-    if (group) group.collapsed = false;
+    for (const g of folderPath(categoryId, groupId)) g.collapsed = false;
   }
 
   function findDuplicate(url, exceptId) {
@@ -920,23 +1035,29 @@
     });
   }
 
-  function openGroupDialog(catId, groupId, afterCreate) {
+  function openGroupDialog(catId, groupId, afterCreate, parentId = null) {
     const cat = getCat(catId);
     const group = getGroup(catId, groupId);
+    const where = placeName({ categoryId: catId, groupId: group ? group.parentId : parentId });
     openNameDialog({
-      title: group ? `Edit group in ${cat.name}` : `New group in ${cat.name}`,
+      title: group ? 'Edit folder' : `New folder in ${where}`,
       value: group ? group.name : '',
       onSave: (name) => {
         if (group) { group.name = name; return; }
-        const created = { id: uid(), name, collapsed: false };
+        const created = { id: uid(), name, collapsed: false, parentId: getGroup(catId, parentId) ? parentId : null };
         cat.groups.push(created);
-        if (cat.collapsed) cat.collapsed = false;
+        revealPlace({ categoryId: catId, groupId: created.parentId });
         if (afterCreate) setTimeout(() => afterCreate(created), 0);
       },
       onDelete: group ? () => {
-        const count = state.links.filter((l) => l.groupId === group.id).length;
-        if (count && !confirm(`Delete group “${group.name}”? Its ${count} ${count === 1 ? 'link stays' : 'links stay'} in ${cat.name}, ungrouped.`)) return false;
-        state.links.forEach((l) => { if (l.groupId === group.id) l.groupId = null; });
+        const ids = folderAndDescendants(cat, group.id);
+        const linkCount = state.links.filter((l) => l.groupId === group.id).length;
+        const subCount = ids.size - 1;
+        const what = [linkCount && `${linkCount} ${linkCount === 1 ? 'link' : 'links'}`, subCount && `${subCount} ${subCount === 1 ? 'sub-folder' : 'sub-folders'}`].filter(Boolean).join(' and ');
+        if (what && !confirm(`Delete folder “${group.name}”? Its ${what} will move up into ${where}.`)) return false;
+        // Contents move up one level rather than being deleted.
+        state.links.forEach((l) => { if (l.groupId === group.id) l.groupId = group.parentId; });
+        cat.groups.forEach((g) => { if (g.parentId === group.id) g.parentId = group.parentId; });
         cat.groups = cat.groups.filter((g) => g.id !== group.id);
       } : null,
     });
@@ -985,6 +1106,9 @@
       return;
     }
 
+    const jump = e.target.closest('[data-jump-cat]');
+    if (jump) { jumpTo(jump.dataset.jumpCat, jump.dataset.jumpGroup || null); return; }
+
     const tagBtn = e.target.closest('[data-tag]');
     if (tagBtn) { toggleTag(tagBtn.dataset.tag); return; }
 
@@ -1025,13 +1149,19 @@
         break;
       }
       case 'add-to-group': openLinkDialog(null, { place: placeValue(catId, groupId) }); break;
+      case 'add-subfolder': openGroupDialog(catId, null, null, groupId); break;
+      case 'copy': copyLink(id, btn); break;
       case 'edit-group': openGroupDialog(catId, groupId); break;
       case 'group-up':
       case 'group-down': {
+        // Swap with the neighbouring folder that shares the same parent.
         const groups = getCat(catId).groups;
-        const i = groups.findIndex((g) => g.id === groupId);
-        const j = i + (btn.dataset.action === 'group-up' ? -1 : 1);
-        if (j < 0 || j >= groups.length) break;
+        const me = getGroup(catId, groupId);
+        const siblings = childFolders(getCat(catId), me.parentId);
+        const other = siblings[siblings.indexOf(me) + (btn.dataset.action === 'group-up' ? -1 : 1)];
+        if (!other) break;
+        const i = groups.indexOf(me);
+        const j = groups.indexOf(other);
         [groups[i], groups[j]] = [groups[j], groups[i]];
         save();
         render();
@@ -1323,9 +1453,11 @@
       let mine = state.categories.find((x) => sameName(x, c));
       if (!mine) { mine = { id: uid(), name: c.name, collapsed: false, groups: [] }; state.categories.push(mine); }
       catMap.set(c.id, mine.id);
-      for (const g of c.groups) {
-        let myGroup = mine.groups.find((x) => sameName(x, g));
-        if (!myGroup) { myGroup = { id: uid(), name: g.name, collapsed: false }; mine.groups.push(myGroup); }
+      // Parents before children, so each folder can be matched inside its mapped parent.
+      for (const { folder: g } of folderTree(c)) {
+        const parentId = g.parentId ? groupMap.get(g.parentId) : null;
+        let myGroup = mine.groups.find((x) => (x.parentId || null) === parentId && sameName(x, g));
+        if (!myGroup) { myGroup = { id: uid(), name: g.name, collapsed: false, parentId }; mine.groups.push(myGroup); }
         groupMap.set(g.id, myGroup.id);
       }
     }
