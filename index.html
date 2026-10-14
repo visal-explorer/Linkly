@@ -54,7 +54,10 @@
     </div>
   </header>
 
-  <main class="container">
+  <main class="container layout">
+    <nav class="sidebar" id="sidebar" aria-label="Categories and folders"></nav>
+
+    <div class="content">
     <form class="quick-add" id="quickAdd" autocomplete="off">
       <div class="qa-field qa-url">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
@@ -85,6 +88,7 @@
     <div id="categories"></div>
 
     <div class="empty" id="emptyState" hidden></div>
+    </div>
   </main>
 
   <footer class="footer">
